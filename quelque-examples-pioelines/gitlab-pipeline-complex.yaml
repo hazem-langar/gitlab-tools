@@ -1,0 +1,112 @@
+variables:
+  KUBE_CONTEXT: root/hazem:agent-langar 
+
+stages:
+  - runSAST
+  - runSCAScanUsingSnyk
+  - runDASTScanUsingZAP
+  - compile
+  - build
+  - deploy
+
+run-sast-job:
+    stage: runSAST
+    image: maven:3.8.5-openjdk-17-slim
+    script: |
+      mvn verify package sonar:sonar -Dsonar.host.url=https://sonarcloud.io/ -Dsonar.organization=hazem -Dsonar.projectKey=hazem_hazem -Dsonar.token=a2af5654aa11dd88c1141843bf97221a90ea0f5a 
+    only:
+     - master
+
+run-sca-job:
+    stage: runSCAScanUsingSnyk
+    image: maven:3.8.5-openjdk-17-slim
+    script: |
+      SNYK_TOKEN='1937f4b5-7d90-46ec-b872-40fa10ad00ae'
+      export SNYK_TOKEN
+      mvn snyk:test -fn
+    only:
+     - master
+run-dast-job:
+    stage: runDASTScanUsingZAP
+    image: maven:3.8.5-openjdk-17-slim
+    script: |
+      apt-get update
+      apt-get -y install wget
+      wget https://github.com/zaproxy/zaproxy/releases/download/v2.14.0/ZAP_2.14.0_Linux.tar.gz
+      mkdir zap
+      tar -xvf ZAP_2.14.0_Linux.tar.gz
+      cd ZAP_2.14.0
+      ./zap.sh -cmd -quickurl https://www.example.com -quickprogress -quickout ../zap_report.html 
+    artifacts:
+      paths:
+        - zap_report.html
+    only:
+     - master
+
+        
+compile:
+  stage: compile
+  image: maven:3.8.3-openjdk-11
+  script:
+    - export GIT_SSL_NO_VERIFY=1 
+    - mvn clean package -Dmaven.test.skip=true
+  artifacts:
+    paths:
+     - target/*.jar
+  only:
+   - master
+
+build: 
+  image: docker:latest
+  variables:
+   #DOCKER_DRIVER: overlay2
+   DOCKER_HOST: tcp://192.168.241.178:2375/
+   DOCKER_TLS_CERTDIR: ""
+   #DOCKER_TLS_CERTDIR: "/home/hazem/ssl3/"
+   #DOCKER_BUILDKIT: 1 
+   #DOCKER_NETWORK: "host"
+   #DOCKER_OPTS: "--insecure-registry=registry.vipin.com" 
+
+  services:
+    - docker:dind
+      #entrypoint: ["dockerd-entrypoint.sh"]
+      #command: ['--insecure-registry=registry.vipin.com']
+    #- network="host"
+
+  stage: build
+  before_script:
+    #- echo "$REGISTRY_CA_CERT" | base64 -d > /usr/local/share/ca-certificates/registry.vipin.com.crt
+    #- update-ca-certificates
+    #- echo "langarbrahim" | docker login registry.vipin.com -u root --password-stdin --insecure 
+    #- cp $ca  /etc/docker/certs.d/registry.vipin.com/
+    #- mkdir -p /etc/docker/certs.d/registry.vipin.com
+    #- cp $CARTIF /etc/docker/certs.d/registry.vipin.com/ca.crt
+    #- echo "$ca" >> /etc/docker/certs.d/registry.vipin.com
+    #- cd /etc/docker/certs.d/registry.vipin.com/
+    #- service docker reload
+    - docker login registry.vipin.com -u root -p  langarbrahim  #--insecure-skip-tls-verify=true#--tls-verify=false
+    #- docker --insecure-registry registry.vipin.com login -u root -p  langarbrahim
+    #- echo "langarbrahim" | docker login -u root --password-stdin registry.vipin.com
+  script:
+    - docker build -t registry.vipin.com/root/hazem . 
+    - docker images
+    - docker push registry.vipin.com/root/hazem
+  only:
+    - master
+
+deploy:
+  stage: deploy 
+  allow_failure: true
+  image:
+    name: bitnami/kubectl:latest
+    entrypoint: ['']
+  script: 
+    - kubectl config get-contexts
+    - kubectl config use-context $KUBE_CONTEXT
+    - kubectl config view
+    - ls $CI_PROJECT_DIR/k8s-files
+    - kubectl apply -f $CI_PROJECT_DIR/k8s-files/  --insecure-skip-tls-verify=true
+    - kubectl get pods -A  --insecure-skip-tls-verify=true   
+    #- kubectl get nodes 
+  #only:
+   #- master          

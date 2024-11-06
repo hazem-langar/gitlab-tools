@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rundeck
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rundeck
+  template:
+    metadata:
+      labels:
+        app: rundeck
+    spec:
+      containers:
+      - name: rundeck
+        image: rundeck/rundeck:5.0.1
+#""if you want integrate with mysql (change with your config/or you can use config map)""
+        #env:
+        #- name: RUNDECK_DATABASE_DRIVER
+         # value: org.mariadb.jdbc.Driver
+        #- name: RUNDECK_DATABASE_USERNAME
+         # value: rundeck
+        #- name: RUNDECK_DATABASE_PASSWORD
+         # value: rundeck
+        #- name: RUNDECK_DATABASE_URL
+         # value: jdbc:mysql://mysql:3306/rundeck?autoReconnect=true
+        ports:
+        - containerPort: 4440
+        volumeMounts:
+        - name: persistent-storage
+          #/path/to/rundeck/data
+          mountPath: /server
+      volumes:
+      - name: persistent-storage
+        persistentVolumeClaim:
+          claimName: rundeck-pvc
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: rundeck
+spec:
+  selector:
+    app: rundeck
+  ports:
+    - protocol: TCP
+      port: 4440
+ #""you can change this port to 80 : but there are a problem in rundeck config  (you can also use :sudo kubectl port-forward service/rundeck 80:4440 --address 0.0.0.0)""
+      targetPort: 4440
+#if you want add type de service(ex:node port ....)
+  #type: NodePort
+--
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: rundeck-pv
+  labels:
+    type: local
+spec:
+  storageClassName: ""
+  capacity:
+    storage: 2Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/mnt/data"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rundeck-pvc
+spec:
+  storageClassName: ""
+#if you want use a storage classname manual(create one and change "" with the name of your classname)
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi

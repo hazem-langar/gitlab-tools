@@ -1,0 +1,50 @@
+variables:
+  KUBE_CONTEXT: root/hazem:hazem-agent
+stages:
+  - compile
+  - build
+  - deploy
+  
+compile:
+  stage: compile
+  image: maven:3.8.3-openjdk-11
+  script:
+    - export GIT_SSL_NO_VERIFY=1
+    - mvn clean package -Dmaven.test.skip=true
+  artifacts:
+    paths:
+     - target/*.jar
+  only:
+    - master
+
+build:
+  image: docker:latest
+  variables:
+   DOCKER_HOST: tcp://192.168.241.164:2375/
+   DOCKER_TLS_CERTDIR: ""
+
+  services:
+    - docker:dind
+
+  stage: build
+  before_script: 
+    - docker login registry.vipin.com -u root -p PtMRPczcpNcbAPh6ZphD374HWXGFHkZV+D4B0y2SYg4= 
+  script:
+    - docker build -t registry.vipin.com/root/hazem . 
+    - docker images
+    - docker push registry.vipin.com/root/hazem
+  only:
+    - master
+
+deploy:
+  stage: deploy 
+  allow_failure: true
+  image:
+    name: bitnami/kubectl:latest
+    entrypoint: ['']
+  script:
+    - kubectl config get-contexts
+    - kubectl config use-context $KUBE_CONTEXT
+    - kubectl config view
+    - kubectl get pods --namespace gitlab-agent-hazem-agent  --insecure-skip-tls-verify=true  
+    #- kubectl get nodes 
